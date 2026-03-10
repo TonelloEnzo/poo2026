@@ -42,7 +42,7 @@ cidads[4] = "Up paraná"
 for i in range(0, 5):
     print(cidads[i])
 """
-
+"""
 def verifica_par (a):
     if(a % 2 == 0):
         par = True
@@ -54,3 +54,14 @@ num = int(input("Diga um número"))
 parouimpar = verifica_par(num)
 
 print(parouimpar)
+"""
+
+"""num = int(input("Digite um número inteiro"))
+while(num != 0):
+    num = int(input("Digite um número inteiro"))
+    if(num == 0):
+        break
+print("Você escolheu sair")"""
+
+
+
