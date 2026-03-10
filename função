@@ -1,0 +1,4 @@
+def multi(a,b):
+    x = a * b
+    return x
+
