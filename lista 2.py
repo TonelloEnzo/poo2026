@@ -62,6 +62,44 @@ while(num != 0):
     if(num == 0):
         break
 print("Você escolheu sair")"""
+prod = []
+cont = 1
+while(cont != 4):
+    print(f"Menu de opções")
+    print("1 - Cadastrar Produto")
+    print("2 - Listar Produtos")
+    print("3 - Aplicar Desconto")
+    print("4 - Sair")
+    cont = int(input("Digite uma opcao "))
+    if(cont == 1):
+        lista = int(input("Qual lista você quer usar? "))
+        
+        produto = str(input("Qual produto quer adicionar? "))
+        preco = float(input("Qual o valor? "))
+        quant = int(input("Qual a quantidade? "))
+        prod.insert(lista, (produto, preco, quant,("x")))
+    elif(cont == 2):
+        # A pergunta abaixo não filtra nada ainda, pois você tem só uma lista (prod)
+        escolha = int(input("Qual lista você quer ver? ")) 
+        
+        print(f"\nExibindo a lista de produtos:")
+        if len(prod) == 0:
+            print("A lista está vazia! Cadastre algo na opção 1.")
+        else:
+            for item in prod:
+                # item[0] = nome, item[1] = preco, item[2] = quant
+                print(f"Produto: {item[0]} | Preço: R${item[1]:.2f} | Qtd: {item[2]}")
+    elif(cont == 3):
+        print("dw")
+    elif(cont == 4):
+        print("Você escolheu sair.")
+        break
+    
 
-
-
+def calcDesconto(precos, p):
+    for i in range(0, len(precos)):
+        desconto = precos[i] * (p/100)
+        valor = precos[i] - desconto
+        precos[i] = valor
+    return precos
+        
