@@ -12,3 +12,5 @@ for cont in range(0, len(valores)):
 for cont in range(0, len(valores)):
     print("valor: ", valores[cont])
 
+lista = [] 
+lista.insert
