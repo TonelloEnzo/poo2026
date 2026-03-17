@@ -62,6 +62,12 @@ while(num != 0):
     if(num == 0):
         break
 print("Você escolheu sair")"""
+
+def calcDesconto(preco, porcentagem):
+    # Remova o for i in range...
+    novo_preco = preco - (preco * (porcentagem / 100))
+    return novo_preco
+
 prod = []
 cont = 1
 while(cont != 4):
@@ -79,7 +85,7 @@ while(cont != 4):
         quant = int(input("Qual a quantidade? "))
         prod.insert(lista, (produto, preco, quant,("x")))
     elif(cont == 2):
-        # A pergunta abaixo não filtra nada ainda, pois você tem só uma lista (prod)
+
         escolha = int(input("Qual lista você quer ver? ")) 
         
         print(f"\nExibindo a lista de produtos:")
@@ -87,19 +93,30 @@ while(cont != 4):
             print("A lista está vazia! Cadastre algo na opção 1.")
         else:
             for item in prod:
-                # item[0] = nome, item[1] = preco, item[2] = quant
+               
                 print(f"Produto: {item[0]} | Preço: R${item[1]:.2f} | Qtd: {item[2]}")
     elif(cont == 3):
-        print("dw")
+        print("\n--- Aplicar Desconto ---")
+        desconto = float(input("Digite a porcentagem de desconto: "))
+        
+        if len(prod) == 0:
+            print("A lista está vazia!")
+        else:
+            print("Produtos com novo preço:")
+            for item in prod:
+                # item[0] é o nome, item[1] é o preço original
+                nome = item[0]
+                preco_antigo = item[1]
+                
+                # Chama sua função para cada item da lista
+                novo_preco = calcDesconto(preco_antigo, desconto)
+                
+                print(f"{nome}: de R${preco_antigo:.2f} por R${novo_preco:.2f}")
+
     elif(cont == 4):
         print("Você escolheu sair.")
         break
     
 
-def calcDesconto(precos, p):
-    for i in range(0, len(precos)):
-        desconto = precos[i] * (p/100)
-        valor = precos[i] - desconto
-        precos[i] = valor
-    return precos
+
         
