@@ -63,7 +63,7 @@ while(num != 0):
         break
 print("Você escolheu sair")"""
 
-def calcDesconto(preco, porcentagem):
+"""def calcDesconto(preco, porcentagem):
     # Remova o for i in range...
     novo_preco = preco - (preco * (porcentagem / 100))
     return novo_preco
@@ -117,6 +117,6 @@ while(cont != 4):
         print("Você escolheu sair.")
         break
     
-
+"""
 
         
