@@ -15,17 +15,40 @@ class Player(arcade.Sprite):
         elif self.change_x < 0:
             self.texture = self.textura_esquerda
 
+        if self.center_x > 800:
+            self.change_x = 0
+           
+        elif self.center_x < 0:
+            self.change_x = 0
+
+        if self.center_y > 600:
+            self.change_y = 0
+            
+        elif self.center_y < 0:
+            self.change_y = 0
        
 
 class Moeda(arcade.Sprite):
     def __init__(self):
-        super().__init__("moeda.png", scale=0.10)
+        super().__init__("moeda.png", scale=0.20)
 
     #atualizar personagem
     def update(self, delta_time):
        #Adicionar movimentação no eixo x e y
-       self.center_x += self.change_x
-       self.center_y += self.change_y
+        self.center_x += self.change_x
+        self.center_y += self.change_y
+
+        if self.right > 800:
+            self.change_x = 0
+           
+        elif self.left < 0:
+            self.change_x = 0
+
+        if self.top > 600:
+            self.change_y = 0
+            
+        elif self.bottom < 0:
+            self.change_y = 0
        
 
 class JanelaJogo(arcade.Window):
@@ -53,6 +76,7 @@ class JanelaJogo(arcade.Window):
          self.sprite_moeda.append(self.moeda)
 
     def on_update(self, delta_time):
+    
         self.sprite_jogador.update(delta_time)
         self.sprite_moeda.update(delta_time)
          
