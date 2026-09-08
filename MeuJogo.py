@@ -1,13 +1,15 @@
 import arcade
 import random
+from peewee import *
 
+db = SqliteDatabase("ranking.db")
 # ============================================================
 # CONFIGURAÇÕES GLOBAIS DO JOGO
 # ============================================================
 
 ALTURA = 600          # Altura da janela em pixels
 LARGURA = 800         # Largura da janela em pixels
-TITULO = "Meu Jogo"   # Título da janela
+TITULO = "Banana Jungle"   # Título da janela
 GRAVIDADE = 0.5       # Força da gravidade aplicada aos elementos físicos
 FORCA_PULO = 14       # Impulso vertical para o pulo do jogador
 
@@ -155,7 +157,7 @@ class TelaInicial(arcade.View):
         arcade.set_background_color((100, 10, 70))  # Define fundo tom roxo/vinho
 
         # Prepara todos os textos estáticos do menu
-        self.txt_titulo = arcade.Text("COLETOR DE BANANAS", LARGURA / 2, 430, arcade.color.WHITE, 34, anchor_x="center")
+        self.txt_titulo = arcade.Text("BANANA JUNGLE", LARGURA / 2, 430, arcade.color.WHITE, 34, anchor_x="center")
         self.txt_jogar = arcade.Text("[J] Jogar", LARGURA / 2, 320, arcade.color.WHITE, 20, anchor_x="center")
         self.txt_tutorial = arcade.Text("[T] Tutorial", LARGURA / 2, 280, arcade.color.WHITE, 20, anchor_x="center")
         self.txt_sobre = arcade.Text("[S] Sobre o Jogo", LARGURA / 2, 240, arcade.color.WHITE, 20, anchor_x="center")
