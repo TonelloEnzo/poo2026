@@ -92,17 +92,16 @@ class MoedaEspecial(arcade.Sprite):
 
 
 # ============================================================
-# INIMIGO COMUM (PATRULHA O CHÃO COM FÍSICA)
+# INIMIGO COMUM (PERSEGUE O JOGADOR NO CHÃO COM FÍSICA)
 # ============================================================
 
 class Inimigo(arcade.Sprite):
-    def __init__(self, blocos):
+    def __init__(self, blocos, jogador):
         super().__init__(("inimigo.png"), scale=0.15)
-        # Sorteia a direção inicial de patrulha (-2 para esquerda, 2 para direita)
-        self.velocidade = random.choice([-2, 2])
-        self.change_x = self.velocidade
+        self.jogador = jogador  # Guarda referência do jogador para perseguição
+        self.velocidade = 1.8
         
-        # O inimigo usa uma engine de física de plataforma para respeitar os blocos e a gravidade
+        # Engine de física para respeitar gravidade e colisão com o chão
         self.engine_fisica = arcade.PhysicsEnginePlatformer(
             player_sprite=self,
             walls=blocos,
@@ -110,32 +109,40 @@ class Inimigo(arcade.Sprite):
         )
 
     def update(self, delta_time):
-        self.change_x = self.velocidade
-        self.engine_fisica.update()  # Processa a física de queda/plataforma do inimigo
+        # Persegue o jogador no eixo horizontal
+        if self.center_x < self.jogador.center_x:
+            self.change_x = self.velocidade
+        elif self.center_x > self.jogador.center_x:
+            self.change_x = -self.velocidade
+        else:
+            self.change_x = 0
 
-        # Inverte a direção do movimento quando chega perto das bordas laterais
-        if self.left <= 5:
-            self.velocidade = abs(self.velocidade)      # Força ir para a direita (+)
-        elif self.right >= LARGURA - 5:
-            self.velocidade = -abs(self.velocidade)     # Força ir para a esquerda (-)
+        self.engine_fisica.update()  # Processa a física de queda/plataforma do inimigo
 
 
 # ============================================================
-# INIMIGO ESPECIAL (SEGUE O JOGADOR DE FORMA DIRETA)
+# INIMIGO ESPECIAL (VOA E REBATE NAS BORDAS DA TELA)
 # ============================================================
 
 class InimigoEspecial(arcade.Sprite):
-    def __init__(self, jogador):
+    def __init__(self):
         super().__init__(("inimigo.png"), scale=0.18)
-        self.jogador = jogador  # Guarda a referência do jogador para perseguí-lo
-        self.movimento = 1.5
+        # Sorteia velocidades iniciais para os eixos X e Y
+        self.change_x = random.choice([-3.0, 3.0])
+        self.change_y = random.choice([-3.0, 3.0])
 
     def update(self, delta_time):
-        # Persegue o jogador apenas no eixo horizontal (X)
-        if self.center_x < self.jogador.center_x:
-            self.center_x += self.movimento
-        elif self.center_x > self.jogador.center_x:
-            self.center_x -= self.movimento
+        # Atualiza a posição livremente pela tela
+        self.center_x += self.change_x
+        self.center_y += self.change_y
+
+        # Rebate nas bordas laterais
+        if self.left < 0 or self.right > LARGURA:
+            self.change_x *= -1
+
+        # Rebate nas bordas superior e inferior
+        if self.bottom < 0 or self.top > ALTURA:
+            self.change_y *= -1
 
 
 # ============================================================
@@ -291,8 +298,8 @@ class TelaJogo(arcade.View):
 
         # --- CRIAÇÃO DE PLATAFORMAS FLUTUANTES ---
         plataformas_pos = [
-            (160, 220),  # Esquerda
-            (640, 220)   # Direita
+            (300, 220),  # Esquerda
+            (550, 220)   # Direita
         ]
         for x, y in plataformas_pos:
             plataforma = Bloco(x, y)
@@ -327,15 +334,15 @@ class TelaJogo(arcade.View):
             moeda_especial.change_y = random.choice([-self.movimento, self.movimento])
             self.sprite_moedas_especiais.append(moeda_especial)
 
-        # --- GERAÇÃO DOS INIMIGOS TERRESTRES ---
+        # --- GERAÇÃO DOS INIMIGOS TERRESTRES (PERSEGUIDORES) ---
         for i in range(self.qtd_inimigos):
-            inimigo = Inimigo(self.sprite_blocos)
+            inimigo = Inimigo(self.sprite_blocos, self.jogador)
             self.respawn_longe_do_jogador(inimigo, 180)  # Evita nascer em cima do player
             inimigo.center_y = 100
             self.sprite_inimigos.append(inimigo)
 
-        # --- GERAÇÃO DO INIMIGO PERSEGUIDOR ---
-        self.inimigo_especial = InimigoEspecial(self.jogador)
+        # --- GERAÇÃO DO INIMIGO VOADOR (REBATE NAS BORDAS) ---
+        self.inimigo_especial = InimigoEspecial()
         self.respawn_longe_do_jogador(self.inimigo_especial, 300)
         self.sprite_inimigo_especial.append(self.inimigo_especial)
 
