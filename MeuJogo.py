@@ -19,6 +19,18 @@ FORCA_PULO = 14       # Impulso vertical para o pulo do jogador
 # ============================================================
 
 class Player(arcade.Sprite):
+
+    def __init__(self):
+        sheet_direita = arcade.load_spritesheet("player_direita.png")
+        quadros_direita = sheet_direita.get_texture_grid(
+        size=(192, 210),
+        coluns= 8,
+        count=8    
+        )
+
+        quadros_esquerda = []
+        for frame in quadros_direita:
+            quadros_esquerda.append(frame.flip_left_right())
     def __init__(self):
         # Inicializa a classe base Sprite carregando a imagem virada para a direita
         super().__init__(("dir macaco.png"), scale=0.20)
