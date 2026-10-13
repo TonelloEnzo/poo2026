@@ -162,6 +162,8 @@ class Player(arcade.Sprite):
             self.change_x = 0
 
 
+
+
 # ============================================================
 # BLOCO / PLATAFORMA
 # ============================================================
@@ -267,6 +269,34 @@ class InimigoEspecial(arcade.Sprite):
             self.top = ALTURA
             self.change_y = -abs(self.change_y)
 
+class Explosao(arcade.Sprite):
+    def __init__(self, x, y):
+        folha = arcade.load_spritesheet("explosao.png")
+        self.quadros = folha.get_texture_grid(
+            size=(334, 334),
+            columns=4,
+            count=4
+        )
+
+        super().__init__(self.quadros[0], scale=0.55)
+
+        self.center_x = x
+        self.center_y = y
+        self.indice_quadro = 0
+        self.tempo = 0
+
+    def update(self, delta_time=1 / 60):
+        self.tempo += delta_time
+
+        if self.tempo >= 0.07:
+            self.tempo = 0
+            self.indice_quadro += 1
+
+            if self.indice_quadro >= len(self.quadros):
+                self.remove_from_sprite_lists()
+                return
+
+            self.texture = self.quadros[self.indice_quadro]
 
 # ============================================================
 # TELA INICIAL
@@ -370,6 +400,7 @@ class TelaSobre(arcade.View):
 class TelaJogo(arcade.View):
     def __init__(self):
         super().__init__()
+        self.sprite_explosoes = arcade.SpriteList()
         self.fundo = arcade.load_texture("floresta.png")
         self.pontuacao = 0
         self.tempo = 0.0
@@ -395,7 +426,7 @@ class TelaJogo(arcade.View):
         # Chão e plataformas suspensas.
         for x in range(32, LARGURA + 32, 64):
             self.sprite_blocos.append(Bloco(x, 30))
-        for x, y in [(270, 190), (700, 190)]:
+        for x, y in [(270, 190), (700, 190), (500, 350)]:
             self.sprite_blocos.append(Bloco(x, y))
 
         self.jogador = Player()
@@ -451,7 +482,7 @@ class TelaJogo(arcade.View):
             moeda = MoedaEspecial()
             moeda.center_x, moeda.center_y = escolher_posicao_banana()
             moeda.change_x = random.choice([-1.2, -0.8, 0.8, 1.2])
-            moeda.change_y = random.choice([-0.7, -0.5, 0.5, 0.7])
+            moeda.change_y = random.choice([-0.7, -0.5, 0.5, 0.9])
             self.sprite_moedas_especiais.append(moeda)
 
         for _ in range(self.qtd_inimigos):
@@ -488,6 +519,7 @@ class TelaJogo(arcade.View):
             texture=self.fundo,
             rect=arcade.XYWH(LARGURA / 2, ALTURA / 2, LARGURA, ALTURA),
         )
+        self.sprite_explosoes.draw()
         self.sprite_blocos.draw()
         self.sprite_moedas.draw()
         self.sprite_moedas_especiais.draw()
@@ -502,6 +534,7 @@ class TelaJogo(arcade.View):
 
     def on_update(self, delta_time: float):
         self.tempo += delta_time
+        self.sprite_explosoes.update(delta_time)
 
         # A engine atualiza física e gravidade do jogador.
         self.engine_fisica.update()
@@ -525,7 +558,15 @@ class TelaJogo(arcade.View):
             self.pontuacao += moeda.valor_moeda
             moeda.remove_from_sprite_lists()
 
-        for inimigo in arcade.check_for_collision_with_list(self.jogador, self.sprite_inimigos):
+        for inimigo in arcade.check_for_collision_with_list(
+            self.jogador, self.sprite_inimigos
+        ):
+            explosao = Explosao(
+                self.jogador.center_x,
+                self.jogador.center_y
+            )
+            self.sprite_explosoes.append(explosao)
+
             self.pontuacao -= 1
             self.alerta_dano()
             self.respawn_longe_do_jogador(inimigo, 150)
@@ -533,6 +574,12 @@ class TelaJogo(arcade.View):
             inimigo.change_y = 0
 
         if arcade.check_for_collision(self.jogador, self.inimigo_especial):
+            explosao = Explosao(
+                self.jogador.center_x,
+                self.jogador.center_y
+            )
+            self.sprite_explosoes.append(explosao)
+
             self.pontuacao -= 1
             self.alerta_dano()
             self.respawn_longe_do_jogador(self.inimigo_especial, 300)
@@ -695,7 +742,7 @@ class TelaRanking(arcade.View):
         self.txt_ajuda.draw()
 
     def on_key_press(self, key, modifiers):
-        if key == arcade.key.ESCAPE:
+        if key == arcade.key.M:
             self.window.show_view(TelaInicial())
         elif key == arcade.key.ESCAPE:
             arcade.close_window()
