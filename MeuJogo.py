@@ -1,197 +1,303 @@
 import arcade
 import random
-from peewee import *
+import datetime
+from peewee import (
+    Model,
+    CharField,
+    IntegerField,
+    FloatField,
+    DateTimeField,
+    SqliteDatabase,
+)
 
+# ============================================================
+# CONFIGURAÇÕES GERAIS
+# ============================================================
+LARGURA = 800
+ALTURA = 600
+TITULO = "Banana Jungle"
+GRAVIDADE = 0.5
+FORCA_PULO = 14
+VELOCIDADE_JOGADOR = 4
+COR_MENU = (100, 10, 70)
+
+# Folha enviada: 2048 x 682 pixels, com 4 quadros horizontais.
+# Cada quadro mede 512 x 682 pixels. Os 3 primeiros são caminhada
+# e o 4º é a pose de pulo.
+TAMANHO_QUADRO = (512, 682)
+COLUNAS_SPRITESHEET = 4
+QUANTIDADE_QUADROS = 4
+QUADROS_CAMINHADA = 3
+TEMPO_QUADRO = 0.12
+
+# ============================================================
+# BANCO DE DADOS — PEEWEE ORM
+# ============================================================
 db = SqliteDatabase("ranking.db")
-# ============================================================
-# CONFIGURAÇÕES GLOBAIS DO JOGO
-# ============================================================
-
-ALTURA = 600          # Altura da janela em pixels
-LARGURA = 800         # Largura da janela em pixels
-TITULO = "Banana Jungle"   # Título da janela
-GRAVIDADE = 0.5       # Força da gravidade aplicada aos elementos físicos
-FORCA_PULO = 14       # Impulso vertical para o pulo do jogador
 
 
-# ============================================================
-# PLAYER (CLASSE DO JOGADOR)
-# ============================================================
+class BaseModel(Model):
+    class Meta:
+        database = db
 
-class Player(arcade.Sprite):
 
-    def __init__(self):
-        sheet_direita = arcade.load_spritesheet("player_direita.png")
-        quadros_direita = sheet_direita.get_texture_grid(
-        size=(192, 210),
-        coluns= 8,
-        count=8    
+class Pontuacao(BaseModel):
+    nome_jogador = CharField()
+    pontos = IntegerField()
+    tempo_partida = FloatField()
+    data_hora = DateTimeField(default=datetime.datetime.now)
+
+    def __str__(self):
+        return (
+            f"{self.nome_jogador} - {self.pontos} pts "
+            f"({self.tempo_partida:.1f}s)"
         )
 
-        quadros_esquerda = []
-        for frame in quadros_direita:
-            quadros_esquerda.append(frame.flip_left_right())
+
+def preparar_banco():
+    """Abre o banco e cria a tabela caso ela ainda não exista."""
+    if db.is_closed():
+        db.connect(reuse_if_open=True)
+    db.create_tables([Pontuacao])
+
+
+# ============================================================
+# PLAYER — PERSONAGEM CONTROLADO PELO JOGADOR
+# ============================================================
+class Player(arcade.Sprite):
     def __init__(self):
-        # Inicializa a classe base Sprite carregando a imagem virada para a direita
-        super().__init__(("dir macaco.png"), scale=0.20)
+        # O requisito da atividade pede load_spritesheet e get_texture_grid.
+        # A folha é fatiada em quadros para a animação de caminhada.
+        self.spritesheet_ok = False
+        self.quadros_direita = []
 
-        # Carrega as duas texturas para trocar conforme a direção do movimento
-        self.textura_direita = arcade.load_texture(("dir macaco.png"))
-        self.textura_esquerda = arcade.load_texture(("esq macaco.png"))
+        try:
+            folha = arcade.load_spritesheet("player_direita.png")
+            self.quadros_direita = folha.get_texture_grid(
+                size=TAMANHO_QUADRO,
+                columns=COLUNAS_SPRITESHEET,
+                count=QUANTIDADE_QUADROS,
+            )
+            if not self.quadros_direita:
+                raise ValueError("A folha de sprites não retornou quadros.")
+            self.spritesheet_ok = True
+            textura_inicial = self.quadros_direita[0]
+        except (FileNotFoundError, OSError, ValueError, TypeError, AttributeError):
+            # Compatibilidade com os sprites antigos do projeto.
+            # Para cumprir integralmente a atividade, mantenha a spritesheet
+            # player_direita.png na pasta do jogo e confira suas dimensões.
+            textura_inicial = arcade.load_texture("dir macaco.png")
 
-    def update(self, delta_time):
-        # Atualiza a posição X com base na velocidade horizontal
-        self.center_x += self.change_x
+        super().__init__(textura_inicial, scale=0.16)
 
-        # Altera a imagem (sprite) dependendo para onde o jogador está andando
+        self.virado_para = "direita"
+        self.textura_parado_direita = self.quadros_direita[0] if self.spritesheet_ok else arcade.load_texture("dir macaco.png")
+        if self.spritesheet_ok:
+            self.texturas_andando_direita = self.quadros_direita
+            self.texturas_andando_esquerda = [
+                textura.flip_left_right() for textura in self.quadros_direita
+            ]
+            # O 4º quadro é a pose de pulo; não entra no ciclo de caminhada.
+            self.textura_pulo_direita = self.quadros_direita[3]
+            self.texturas_andando_direita = self.quadros_direita[:QUADROS_CAMINHADA]
+            self.textura_parado_esquerda = self.textura_parado_direita.flip_left_right()
+            self.textura_pulo_esquerda = self.textura_pulo_direita.flip_left_right()
+        else:
+            self.textura_parado_esquerda = arcade.load_texture("esq macaco.png")
+            self.texturas_andando_direita = [self.textura_parado_direita]
+            self.texturas_andando_esquerda = [self.textura_parado_esquerda]
+            self.textura_pulo_direita = self.textura_parado_direita
+            self.textura_pulo_esquerda = self.textura_parado_esquerda
+
+        self.indice_quadro = 0
+        self.tempo_animacao = 0.0
+        self.estado_atual = "parado"
+
+    def update(self, delta_time: float = 1 / 60):
+        # Prioridade de estados exigida na atividade:
+        # 1. Pulo/queda; 2. Parado; 3. Andando.
         if self.change_x > 0:
-            self.texture = self.textura_direita
+            self.virado_para = "direita"
         elif self.change_x < 0:
-            self.texture = self.textura_esquerda
+            self.virado_para = "esquerda"
 
-        # Limita o movimento do jogador para que ele não saia das bordas da tela
+        if self.change_y != 0:
+            self.estado_atual = "pulo"
+            self.texture = (
+                self.textura_pulo_direita
+                if self.virado_para == "direita"
+                else self.textura_pulo_esquerda
+            )
+            self.tempo_animacao = 0.0
+        elif self.change_x == 0:
+            self.estado_atual = "parado"
+            self.texture = (
+                self.textura_parado_direita
+                if self.virado_para == "direita"
+                else self.textura_parado_esquerda
+            )
+            self.tempo_animacao = 0.0
+        else:
+            self.estado_atual = "andando"
+            self.tempo_animacao += delta_time
+            if self.tempo_animacao >= TEMPO_QUADRO:
+                self.tempo_animacao -= TEMPO_QUADRO
+                self.indice_quadro = (
+                    self.indice_quadro + 1
+                ) % len(self.texturas_andando_direita)
+
+            quadros = (
+                self.texturas_andando_direita
+                if self.virado_para == "direita"
+                else self.texturas_andando_esquerda
+            )
+            self.texture = quadros[self.indice_quadro]
+
+        # Limita o personagem à largura da janela.
         if self.right > LARGURA:
-            self.change_x = 0
             self.right = LARGURA
-        elif self.left < 0:
             self.change_x = 0
+        elif self.left < 0:
             self.left = 0
+            self.change_x = 0
 
 
 # ============================================================
 # BLOCO / PLATAFORMA
 # ============================================================
-
 class Bloco(arcade.Sprite):
     def __init__(self, x: float, y: float):
-        # Cria um bloco/plataforma com imagem e escala personalizadas
-        super().__init__(("bloco.png"), scale=0.5)
+        super().__init__("bloco.png", scale=0.5)
         self.center_x = x
         self.center_y = y
 
 
 # ============================================================
-# MOEDA ESTÁTICA (BANANA COMUM)
+# MOEDA COMUM
 # ============================================================
-
 class Moeda(arcade.Sprite):
-    valor_moeda = 1  # Atributo estático: vale 1 ponto
+    valor_moeda = 1
 
     def __init__(self):
-        super().__init__(("banana.png"), scale=0.10)
+        super().__init__("banana.png", scale=0.10)
 
 
 # ============================================================
-# MOEDA ESPECIAL (BANANA QUE SE MOVE E REBATE)
+# MOEDA ESPECIAL
 # ============================================================
-
 class MoedaEspecial(arcade.Sprite):
-    valor_moeda = 5  # Atributo estático: vale 5 pontos
+    valor_moeda = 5
 
     def __init__(self):
-        super().__init__(("banana.png"), scale=0.14)
+        super().__init__("banana.png", scale=0.14)
 
-    def update(self, delta_time):
-        # Move a moeda especial nos eixos X e Y
+    def update(self, delta_time: float = 1 / 60):
         self.center_x += self.change_x
         self.center_y += self.change_y
 
-        # Rebate na borda esquerda/direita invertendo a velocidade horizontal
-        if self.left < 0 or self.right > LARGURA:
-            self.change_x *= -1
+        if self.left < 0:
+            self.left = 0
+            self.change_x = abs(self.change_x)
+        elif self.right > LARGURA:
+            self.right = LARGURA
+            self.change_x = -abs(self.change_x)
 
-        # Rebate na borda inferior/superior invertendo a velocidade vertical
-        if self.bottom < 0 or self.top > ALTURA:
-            self.change_y *= -1
+        if self.center_y < 70:
+            self.center_y = 70
+            self.change_y = abs(self.change_y)
+        elif self.center_y > 245:
+            self.center_y = 245
+            self.change_y = -abs(self.change_y)
 
 
 # ============================================================
-# INIMIGO COMUM (PERSEGUE O JOGADOR NO CHÃO COM FÍSICA)
+# INIMIGO TERRESTRE
 # ============================================================
-
 class Inimigo(arcade.Sprite):
-    def __init__(self, blocos, jogador):
-        super().__init__(("inimigo.png"), scale=0.15)
-        self.jogador = jogador  # Guarda referência do jogador para perseguição
-        self.velocidade = 1.8
-        
-        # Engine de física para respeitar gravidade e colisão com o chão
+    """Inimigo terrestre que patrulha de um lado para o outro sem perseguir o jogador."""
+    def __init__(self, blocos: arcade.SpriteList, jogador: Player = None):
+        super().__init__("inimigo.png", scale=0.15)
+        # Mantém o parâmetro jogador por compatibilidade, mas não o usa para perseguir.
+        self.velocidade = random.choice([1.5, 1.8, 2.1])
+        self.direcao = random.choice([-1, 1])
+        self.change_x = self.velocidade * self.direcao
         self.engine_fisica = arcade.PhysicsEnginePlatformer(
             player_sprite=self,
             walls=blocos,
-            gravity_constant=GRAVIDADE
+            gravity_constant=GRAVIDADE,
         )
 
-    def update(self, delta_time):
-        # Persegue o jogador no eixo horizontal
-        if self.center_x < self.jogador.center_x:
-            self.change_x = self.velocidade
-        elif self.center_x > self.jogador.center_x:
-            self.change_x = -self.velocidade
-        else:
-            self.change_x = 0
+    def update(self, delta_time: float = 1 / 60):
+        # Patrulha o chão e inverte a direção ao tocar nas bordas da tela.
+        self.change_x = self.velocidade * self.direcao
+        self.engine_fisica.update()
 
-        self.engine_fisica.update()  # Processa a física de queda/plataforma do inimigo
+        if self.left <= 0:
+            self.left = 0
+            self.direcao = 1
+        elif self.right >= LARGURA:
+            self.right = LARGURA
+            self.direcao = -1
 
 
 # ============================================================
-# INIMIGO ESPECIAL (VOA E REBATE NAS BORDAS DA TELA)
+# INIMIGO ESPECIAL VOADOR
 # ============================================================
-
 class InimigoEspecial(arcade.Sprite):
     def __init__(self):
-        super().__init__(("inimigo.png"), scale=0.18)
-        # Sorteia velocidades iniciais para os eixos X e Y
+        super().__init__("inimigo.png", scale=0.18)
         self.change_x = random.choice([-3.0, 3.0])
         self.change_y = random.choice([-3.0, 3.0])
 
-    def update(self, delta_time):
-        # Atualiza a posição livremente pela tela
+    def update(self, delta_time: float = 1 / 60):
         self.center_x += self.change_x
         self.center_y += self.change_y
 
-        # Rebate nas bordas laterais
-        if self.left < 0 or self.right > LARGURA:
-            self.change_x *= -1
+        if self.left < 0:
+            self.left = 0
+            self.change_x = abs(self.change_x)
+        elif self.right > LARGURA:
+            self.right = LARGURA
+            self.change_x = -abs(self.change_x)
 
-        # Rebate nas bordas superior e inferior
-        if self.bottom < 0 or self.top > ALTURA:
-            self.change_y *= -1
+        if self.bottom < 0:
+            self.bottom = 0
+            self.change_y = abs(self.change_y)
+        elif self.top > ALTURA:
+            self.top = ALTURA
+            self.change_y = -abs(self.change_y)
 
 
 # ============================================================
-# TELA INICIAL (MENU PRINCIPAL)
+# TELA INICIAL
 # ============================================================
-
 class TelaInicial(arcade.View):
     def __init__(self):
         super().__init__()
-        arcade.set_background_color((100, 10, 70))  # Define fundo tom roxo/vinho
+        self.txt_titulo = arcade.Text("BANANA JUNGLE", LARGURA / 2, 440, arcade.color.WHITE, 34, anchor_x="center")
+        self.txt_jogar = arcade.Text("[J] Jogar", LARGURA / 2, 340, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_tutorial = arcade.Text("[T] Tutorial", LARGURA / 2, 300, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_sobre = arcade.Text("[S] Sobre o jogo", LARGURA / 2, 260, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_ranking = arcade.Text("[R] Ranking Top 10", LARGURA / 2, 220, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_sair = arcade.Text("[ESC] Sair", LARGURA / 2, 180, arcade.color.WHITE, 20, anchor_x="center")
 
-        # Prepara todos os textos estáticos do menu
-        self.txt_titulo = arcade.Text("BANANA JUNGLE", LARGURA / 2, 430, arcade.color.WHITE, 34, anchor_x="center")
-        self.txt_jogar = arcade.Text("[J] Jogar", LARGURA / 2, 320, arcade.color.WHITE, 20, anchor_x="center")
-        self.txt_tutorial = arcade.Text("[T] Tutorial", LARGURA / 2, 280, arcade.color.WHITE, 20, anchor_x="center")
-        self.txt_sobre = arcade.Text("[S] Sobre o Jogo", LARGURA / 2, 240, arcade.color.WHITE, 20, anchor_x="center")
-        self.txt_sair = arcade.Text("[ESC] Sair", LARGURA / 2, 200, arcade.color.WHITE, 20, anchor_x="center")
+    def on_show_view(self):
+        arcade.set_background_color(COR_MENU)
 
     def on_draw(self):
-        self.clear()  # Limpa a tela antes de redesenhar
-        # Desenha os textos do menu
-        self.txt_titulo.draw()
-        self.txt_jogar.draw()
-        self.txt_tutorial.draw()
-        self.txt_sobre.draw()
-        self.txt_sair.draw()
+        self.clear()
+        for texto in (self.txt_titulo, self.txt_jogar, self.txt_tutorial, self.txt_sobre, self.txt_ranking, self.txt_sair):
+            texto.draw()
 
     def on_key_press(self, key, modifiers):
-        # Trata a navegação entre as telas do menu por teclado
-        if key == arcade.key.J:
+        if key in (arcade.key.J, arcade.key.ENTER):
             self.window.show_view(TelaJogo())
         elif key == arcade.key.T:
             self.window.show_view(TelaTutorial())
         elif key == arcade.key.S:
             self.window.show_view(TelaSobre())
+        elif key == arcade.key.R:
+            self.window.show_view(TelaRanking())
         elif key == arcade.key.ESCAPE:
             arcade.close_window()
 
@@ -199,104 +305,86 @@ class TelaInicial(arcade.View):
 # ============================================================
 # TELA DE TUTORIAL
 # ============================================================
-
 class TelaTutorial(arcade.View):
     def __init__(self):
         super().__init__()
-        arcade.set_background_color((100, 10, 70))
+        self.textos = [
+            arcade.Text("COMO JOGAR", LARGURA / 2, 480, arcade.color.WHITE, 30, anchor_x="center"),
+            arcade.Text("Use A, D ou as setas para andar", LARGURA / 2, 420, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Pressione W, ESPAÇO ou ↑ para pular", LARGURA / 2, 380, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Banana comum: +1 ponto", LARGURA / 2, 340, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Banana especial: +5 pontos", LARGURA / 2, 305, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Colidir com inimigos: -1 ponto", LARGURA / 2, 270, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("[ESC] Voltar ao menu", LARGURA / 2, 120, arcade.color.WHITE, 18, anchor_x="center"),
+        ]
 
-        # Configura as linhas de instrução de como jogar
-        self.txt_titulo = arcade.Text("COMO JOGAR", LARGURA / 2, 480, arcade.color.WHITE, 30, anchor_x="center")
-        self.txt_l1 = arcade.Text("Use A, D ou ⬅ ⮕ para mover os lados", LARGURA / 2, 420, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l2 = arcade.Text("Pressione W, ESPAÇO ou ⬆ para PULAR", LARGURA / 2, 380, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l3 = arcade.Text("Banana comum: +1 ponto", LARGURA / 2, 340, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l4 = arcade.Text("Banana especial: +5 pontos", LARGURA / 2, 305, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l5 = arcade.Text("Inimigos: -1 ponto ao colidir", LARGURA / 2, 270, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_voltar = arcade.Text("[T] ou [ESC] para voltar ao menu", LARGURA / 2, 120, arcade.color.WHITE, 18, anchor_x="center")
+    def on_show_view(self):
+        arcade.set_background_color(COR_MENU)
 
     def on_draw(self):
         self.clear()
-        self.txt_titulo.draw()
-        self.txt_l1.draw()
-        self.txt_l2.draw()
-        self.txt_l3.draw()
-        self.txt_l4.draw()
-        self.txt_l5.draw()
-        self.txt_voltar.draw()
+        for texto in self.textos:
+            texto.draw()
 
     def on_key_press(self, key, modifiers):
-        # Retorna ao menu inicial se pressionar T ou ESC
-        if key == arcade.key.T or key == arcade.key.ESCAPE:
+        if key == arcade.key.ESCAPE:
             self.window.show_view(TelaInicial())
 
 
 # ============================================================
-# TELA SOBRE O JOGO
+# TELA SOBRE
 # ============================================================
-
 class TelaSobre(arcade.View):
     def __init__(self):
         super().__init__()
-        arcade.set_background_color((100, 10, 70))
-
-        # Exibe a foto/avatar do desenvolvedor centralizada
-        self.sprite_desenvolvedor = arcade.SpriteList()
-        self.avatar = arcade.Sprite(("inimigo.png"), scale=0.18)
+        self.avatar = arcade.Sprite("inimigo.png", scale=0.18)
         self.avatar.center_x = LARGURA / 2
         self.avatar.center_y = 350
+        self.sprite_desenvolvedor = arcade.SpriteList()
         self.sprite_desenvolvedor.append(self.avatar)
+        self.textos = [
+            arcade.Text("SOBRE O JOGO", LARGURA / 2, 500, arcade.color.WHITE, 32, anchor_x="center"),
+            arcade.Text("Integrante: Enzo", LARGURA / 2, 230, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Jogo desenvolvido em Python com Arcade.", LARGURA / 2, 190, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("Atividade de Programação Orientada a Objetos.", LARGURA / 2, 155, arcade.color.WHITE, 17, anchor_x="center"),
+            arcade.Text("[ESC] Voltar ao menu", LARGURA / 2, 80, arcade.color.WHITE, 17, anchor_x="center"),
+        ]
 
-        # Informações sobre a autoria do projeto
-        self.txt_titulo = arcade.Text("SOBRE O JOGO", LARGURA / 2, 500, arcade.color.WHITE, 32, anchor_x="center")
-        self.txt_l1 = arcade.Text("Integrantes: [Enzo]", LARGURA / 2, 230, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l2 = arcade.Text("Jogo desenvolvido em Python com a biblioteca Arcade.", LARGURA / 2, 190, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_l3 = arcade.Text("Atividade de Programação Orientada a Objetos (POO).", LARGURA / 2, 155, arcade.color.WHITE, 17, anchor_x="center")
-        self.txt_voltar = arcade.Text("ESC ou M: voltar ao menu.", LARGURA / 2, 80, arcade.color.WHITE, 17, anchor_x="center")
+    def on_show_view(self):
+        arcade.set_background_color(COR_MENU)
 
     def on_draw(self):
         self.clear()
-        self.txt_titulo.draw()
         self.sprite_desenvolvedor.draw()
-        self.txt_l1.draw()
-        self.txt_l2.draw()
-        self.txt_l3.draw()
-        self.txt_voltar.draw()
+        for texto in self.textos:
+            texto.draw()
 
     def on_key_press(self, key, modifiers):
-        if key == arcade.key.ESCAPE or key == arcade.key.M:
+        if key == arcade.key.ESCAPE:
             self.window.show_view(TelaInicial())
 
 
 # ============================================================
-# TELA DO JOGO (GAMEPLAY PRINCIPAL)
+# TELA DO JOGO
 # ============================================================
-
 class TelaJogo(arcade.View):
     def __init__(self):
         super().__init__()
-
-        # Carrega imagem de fundo
-        self.fundo = arcade.load_texture(("floresta.png"))
-
-        # Atributos de estado da partida
-        self.movimento = 4
+        self.fundo = arcade.load_texture("floresta.png")
         self.pontuacao = 0
         self.tempo = 0.0
-        self.dano = False          # Controla a visibilidade do aviso de dano
-        self.alerta_timer = 0     # Temporizador para o texto de dano sumir
+        self.dano = False
+        self.alerta_timer = 0.0
+        self.movimento = VELOCIDADE_JOGADOR
 
-        # Quantidades de elementos do jogo
         self.qtd_moedas = 25
         self.qtd_moedas_especiais = 5
         self.qtd_inimigos = 3
-
-        # Calcula a pontuação perfeita possível sem tomar nenhum dano
         self.pontuacao_maxima = (
             self.qtd_moedas * Moeda.valor_moeda
             + self.qtd_moedas_especiais * MoedaEspecial.valor_moeda
         )
 
-        # Inicializa as listas organizadoras de Sprites para renderização e colisões
         self.sprite_blocos = arcade.SpriteList()
         self.sprite_jogador = arcade.SpriteList()
         self.sprite_moedas = arcade.SpriteList()
@@ -304,223 +392,307 @@ class TelaJogo(arcade.View):
         self.sprite_inimigos = arcade.SpriteList()
         self.sprite_inimigo_especial = arcade.SpriteList()
 
-        # --- CRIAÇÃO DO CHÃO CONTINUO ---
-        tamanho_bloco = 64
-        for x in range(32, LARGURA + 32, tamanho_bloco):
-            chao = Bloco(x=x, y=30)
-            self.sprite_blocos.append(chao)
+        # Chão e plataformas suspensas.
+        for x in range(32, LARGURA + 32, 64):
+            self.sprite_blocos.append(Bloco(x, 30))
+        for x, y in [(270, 190), (540, 190)]:
+            self.sprite_blocos.append(Bloco(x, y))
 
-        # --- CRIAÇÃO DE PLATAFORMAS FLUTUANTES ---
-        plataformas_pos = [
-            (300, 220),  # Esquerda
-            (550, 220)   # Direita
-        ]
-        for x, y in plataformas_pos:
-            plataforma = Bloco(x, y)
-            self.sprite_blocos.append(plataforma)
-
-        # --- CRIAÇÃO E POSICIONAMENTO DO JOGADOR ---
         self.jogador = Player()
         self.jogador.center_x = 64
         self.jogador.center_y = 100
         self.sprite_jogador.append(self.jogador)
 
-        # Engine de física principal do jogador para colisão com chão/plataformas e gravidade
         self.engine_fisica = arcade.PhysicsEnginePlatformer(
             player_sprite=self.jogador,
             walls=self.sprite_blocos,
-            gravity_constant=GRAVIDADE
+            gravity_constant=GRAVIDADE,
         )
 
-        # --- GERAÇÃO DAS MOEDAS NORMAIS ---
-        for i in range(self.qtd_moedas):
+        # Bananas distribuídas pelo chão e também logo acima das plataformas.
+        # As plataformas ficam em uma altura moderada para serem alcançáveis.
+        posicoes_bananas = []
+
+        def registrar_posicao(x, y):
+            posicoes_bananas.append((x, y))
+            return x, y
+
+        def escolher_posicao_banana():
+            # Alterna entre regiões baixas, saltos médios e áreas acima das plataformas.
+            faixas = [(65, 105), (90, 140), (125, 170), (205, 235)]
+            for _tentativa in range(60):
+                x = random.randint(45, LARGURA - 45)
+                y = random.randint(*random.choice(faixas))
+                # Evita aglomeração, mas permite que o mapa fique bem preenchido.
+                if all(abs(x - px) > 55 or abs(y - py) > 28 for px, py in posicoes_bananas):
+                    return registrar_posicao(x, y)
+            return registrar_posicao(random.randint(45, LARGURA - 45), random.randint(70, 225))
+
+        # Parte das bananas fica propositalmente acima das duas plataformas.
+        posicoes_plataformas = [
+            (random.randint(220, 320), random.randint(215, 230)),
+            (random.randint(490, 590), random.randint(215, 230)),
+        ]
+        for x, y in posicoes_plataformas:
+            registrar_posicao(x, y)
+
+        # Cria bananas comuns; as primeiras duas ficam sobre as plataformas.
+        for indice in range(self.qtd_moedas):
             moeda = Moeda()
-            moeda.center_x = random.randint(30, LARGURA - 30)
-            moeda.center_y = random.randint(100, ALTURA - 30)
+            if indice < len(posicoes_plataformas):
+                moeda.center_x, moeda.center_y = posicoes_plataformas[indice]
+            else:
+                moeda.center_x, moeda.center_y = escolher_posicao_banana()
             self.sprite_moedas.append(moeda)
 
-        # --- GERAÇÃO DAS MOEDAS ESPECIAIS (COM MOVIMENTO) ---
-        for i in range(self.qtd_moedas_especiais):
-            moeda_especial = MoedaEspecial()
-            moeda_especial.center_x = random.randint(50, LARGURA - 50)
-            moeda_especial.center_y = random.randint(100, ALTURA - 50)
-            moeda_especial.change_x = random.choice([-self.movimento, self.movimento])
-            moeda_especial.change_y = random.choice([-self.movimento, self.movimento])
-            self.sprite_moedas_especiais.append(moeda_especial)
+        # Bananas especiais se movem tanto na horizontal quanto na vertical.
+        # A velocidade diagonal muda de sinal ao tocar os limites do espaço jogável.
+        for _ in range(self.qtd_moedas_especiais):
+            moeda = MoedaEspecial()
+            moeda.center_x, moeda.center_y = escolher_posicao_banana()
+            moeda.change_x = random.choice([-1.2, -0.8, 0.8, 1.2])
+            moeda.change_y = random.choice([-0.7, -0.5, 0.5, 0.7])
+            self.sprite_moedas_especiais.append(moeda)
 
-        # --- GERAÇÃO DOS INIMIGOS TERRESTRES (PERSEGUIDORES) ---
-        for i in range(self.qtd_inimigos):
+        for _ in range(self.qtd_inimigos):
             inimigo = Inimigo(self.sprite_blocos, self.jogador)
-            self.respawn_longe_do_jogador(inimigo, 180)  # Evita nascer em cima do player
+            self.respawn_longe_do_jogador(inimigo, 180)
             inimigo.center_y = 100
             self.sprite_inimigos.append(inimigo)
 
-        # --- GERAÇÃO DO INIMIGO VOADOR (REBATE NAS BORDAS) ---
         self.inimigo_especial = InimigoEspecial()
         self.respawn_longe_do_jogador(self.inimigo_especial, 300)
         self.sprite_inimigo_especial.append(self.inimigo_especial)
 
-        # Textos da Interface (HUD)
-        self.txt_pontos = arcade.Text(f"Pontos: {self.pontuacao}", 10, 570, arcade.color.WHITE, 16)
-        self.txt_tempo = arcade.Text(f"Tempo: {self.tempo:.1f}s", 10, 545, arcade.color.WHITE, 16)
+        self.txt_pontos = arcade.Text("", 10, 570, arcade.color.WHITE, 16)
+        self.txt_tempo = arcade.Text("", 10, 545, arcade.color.WHITE, 16)
         self.txt_maximo = arcade.Text(f"Máximo: {self.pontuacao_maxima}", 10, 520, arcade.color.WHITE, 16)
-        self.txt_dano = arcade.Text("DANO RECEBIDO! -1 PONTO", LARGURA / 2, ALTURA / 2, arcade.color.RED, 28, anchor_x="center")
+        self.txt_dano = arcade.Text("DANO RECEBIDO! -1 PONTO", LARGURA / 2, ALTURA / 2, arcade.color.RED, 25, anchor_x="center")
+
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.BLACK)
 
     def respawn_longe_do_jogador(self, inimigo, distancia_minima):
-        """Gera posições aleatórias para os inimigos até encontrar uma distante do jogador."""
-        while True:
+        for _ in range(100):
             inimigo.center_x = random.randint(40, LARGURA - 40)
             inimigo.center_y = random.randint(100, ALTURA - 40)
-            distancia = arcade.get_distance_between_sprites(inimigo, self.jogador)
-            if distancia >= distancia_minima:
-                break
+            if arcade.get_distance_between_sprites(inimigo, self.jogador) >= distancia_minima:
+                return
+        # Fallback para evitar um loop infinito em mapas pequenos.
+        inimigo.center_x = LARGURA - 60
+        inimigo.center_y = ALTURA - 60
 
     def on_draw(self):
         self.clear()
-
-        # Desenha a textura de fundo esticada para toda a janela
         arcade.draw_texture_rect(
             texture=self.fundo,
-            rect=arcade.XYWH(LARGURA / 2, ALTURA / 2, LARGURA, ALTURA)
+            rect=arcade.XYWH(LARGURA / 2, ALTURA / 2, LARGURA, ALTURA),
         )
-
-        # Desenha todas as listas de sprites na ordem de visualização (Camadas)
         self.sprite_blocos.draw()
-        self.sprite_jogador.draw()
         self.sprite_moedas.draw()
         self.sprite_moedas_especiais.draw()
+        self.sprite_jogador.draw()
         self.sprite_inimigos.draw()
         self.sprite_inimigo_especial.draw()
-
-        # Desenha os textos do HUD
         self.txt_pontos.draw()
         self.txt_tempo.draw()
         self.txt_maximo.draw()
-
-        # Exibe mensagem temporária de dano apenas se self.dano for True
         if self.dano:
             self.txt_dano.draw()
 
-    def on_update(self, delta_time):
+    def on_update(self, delta_time: float):
         self.tempo += delta_time
-        self.engine_fisica.update()  # Atualiza posições físicas e gravidade do jogador
 
-        # Atualiza os textos do HUD com os valores atuais
-        self.txt_pontos.text = f"Pontos: {self.pontuacao}"
-        self.txt_tempo.text = f"Tempo: {self.tempo:.1f}s"
+        # A engine atualiza física e gravidade do jogador.
+        self.engine_fisica.update()
 
-        # Executa o método update de cada grupo de objetos
+        # O Player.update trata apenas estados visuais; os outros atores
+        # mantêm seus próprios comportamentos. Isso usa polimorfismo.
         self.sprite_jogador.update(delta_time)
         self.sprite_moedas.update(delta_time)
         self.sprite_moedas_especiais.update(delta_time)
-
-        for inimigo in self.sprite_inimigos:
-            inimigo.update(delta_time)
-
+        self.sprite_inimigos.update(delta_time)
         self.sprite_inimigo_especial.update(delta_time)
 
-        # --- LÓGICA DE COLISÕES COM MOEDAS NORMAIS ---
-        moedas_colididas = arcade.check_for_collision_with_list(self.jogador, self.sprite_moedas)
-        for moeda in moedas_colididas:
-            self.pontuacao += moeda.valor_moeda
-            moeda.remove_from_sprite_lists()  # Deleta a moeda coletada
+        self.txt_pontos.text = f"Pontos: {self.pontuacao}"
+        self.txt_tempo.text = f"Tempo: {self.tempo:.1f}s"
 
-        # --- LÓGICA DE COLISÕES COM MOEDAS ESPECIAIS ---
-        moedas_especiais_colididas = arcade.check_for_collision_with_list(self.jogador, self.sprite_moedas_especiais)
-        for moeda in moedas_especiais_colididas:
+        for moeda in arcade.check_for_collision_with_list(self.jogador, self.sprite_moedas):
             self.pontuacao += moeda.valor_moeda
             moeda.remove_from_sprite_lists()
 
-        # --- LÓGICA DE COLISÕES COM INIMIGOS TERRESTRES ---
-        inimigos_colididos = arcade.check_for_collision_with_list(self.jogador, self.sprite_inimigos)
-        for inimigo in inimigos_colididos:
+        for moeda in arcade.check_for_collision_with_list(self.jogador, self.sprite_moedas_especiais):
+            self.pontuacao += moeda.valor_moeda
+            moeda.remove_from_sprite_lists()
+
+        for inimigo in arcade.check_for_collision_with_list(self.jogador, self.sprite_inimigos):
             self.pontuacao -= 1
             self.alerta_dano()
-            self.respawn_longe_do_jogador(inimigo, 150)  # Teleporta o inimigo após colisão
+            self.respawn_longe_do_jogador(inimigo, 150)
             inimigo.center_y = 100
+            inimigo.change_y = 0
 
-        # --- LÓGICA DE COLISÃO COM INIMIGO ESPECIAL ---
         if arcade.check_for_collision(self.jogador, self.inimigo_especial):
             self.pontuacao -= 1
             self.alerta_dano()
             self.respawn_longe_do_jogador(self.inimigo_especial, 300)
 
-        # Controla o tempo de exibição do alerta vermelho na tela
         if self.dano:
             self.alerta_timer -= delta_time
             if self.alerta_timer <= 0:
                 self.dano = False
 
-        # CONDIÇÃO DE VITÓRIA / TÉRMINO: Se não houver mais moedas no mapa
         if len(self.sprite_moedas) == 0 and len(self.sprite_moedas_especiais) == 0:
-            self.window.show_view(TelaFinal(self.pontuacao, self.tempo, self.pontuacao_maxima))
+            self.window.show_view(
+                TelaFinal(self.pontuacao, self.tempo, self.pontuacao_maxima)
+            )
 
     def alerta_dano(self):
-        """Ativa o aviso visual de dano por 0,5 segundo."""
         self.dano = True
         self.alerta_timer = 0.5
 
     def on_key_press(self, key, modifiers):
-        # Trata as teclas pressionadas para movimentação e pause/saída
         if key == arcade.key.ESCAPE:
             self.window.show_view(TelaInicial())
             return
-
-        # Movimento Lateral
         if key in (arcade.key.A, arcade.key.LEFT):
             self.jogador.change_x = -self.movimento
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.jogador.change_x = self.movimento
-
-        # Pulo (Verifica se está pisando em algum bloco/chão antes de pular)
-        if key in (arcade.key.W, arcade.key.SPACE, arcade.key.UP):
+        elif key in (arcade.key.W, arcade.key.SPACE, arcade.key.UP):
+            # can_jump() bloqueia o pulo duplo no ar.
             if self.engine_fisica.can_jump():
                 self.jogador.change_y = FORCA_PULO
 
     def on_key_release(self, key, modifiers):
-        # Zera a velocidade horizontal quando solta a tecla de andar
         if key in (arcade.key.A, arcade.key.D, arcade.key.LEFT, arcade.key.RIGHT):
             self.jogador.change_x = 0
 
 
 # ============================================================
-# TELA FINAL (RESULTADOS)
+# TELA FINAL — CAPTURA DO NOME E SALVAMENTO
 # ============================================================
-
 class TelaFinal(arcade.View):
-    def __init__(self, pontos, tempo, pontuacao_maxima):
+    def __init__(self, pontos: int, tempo: float, pontuacao_maxima: int):
         super().__init__()
         self.pontos = pontos
         self.tempo = tempo
         self.pontuacao_maxima = pontuacao_maxima
-        arcade.set_background_color((100, 10, 70))
+        self.nome_digitado = ""
+        self.salvo = False
+        self.mensagem = "Digite seu nome e pressione ENTER para salvar."
+        self.cor_mensagem = arcade.color.WHITE
 
-        # Montagem das mensagens de resumo
-        self.txt_titulo = arcade.Text("JOGO FINALIZADO!", LARGURA / 2, 430, arcade.color.WHITE, 34, anchor_x="center")
-        self.txt_pontos = arcade.Text(f"Pontuação: {self.pontos}", LARGURA / 2, 350, arcade.color.WHITE, 22, anchor_x="center")
-        self.txt_tempo = arcade.Text(f"Tempo total: {self.tempo:.1f}s", LARGURA / 2, 315, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_titulo = arcade.Text("JOGO FINALIZADO!", LARGURA / 2, 455, arcade.color.WHITE, 32, anchor_x="center")
+        self.txt_pontos = arcade.Text(f"Pontuação: {pontos}", LARGURA / 2, 395, arcade.color.WHITE, 22, anchor_x="center")
+        self.txt_tempo = arcade.Text(f"Tempo total: {tempo:.1f}s", LARGURA / 2, 360, arcade.color.WHITE, 20, anchor_x="center")
+        self.txt_instrucao = arcade.Text(self.mensagem, LARGURA / 2, 290, arcade.color.WHITE, 16, anchor_x="center")
+        self.txt_nome = arcade.Text("", LARGURA / 2, 245, arcade.color.YELLOW, 22, anchor_x="center")
+        self.txt_ranking = arcade.Text("[R] Ver ranking Top 10", LARGURA / 2, 150, arcade.color.WHITE, 18, anchor_x="center")
+        self.txt_menu = arcade.Text("[M] Voltar ao menu", LARGURA / 2, 115, arcade.color.WHITE, 18, anchor_x="center")
+        self.txt_sair = arcade.Text("[ESC] Sair", LARGURA / 2, 80, arcade.color.WHITE, 18, anchor_x="center")
 
-        # Verifica se o jogador obteve a pontuação perfeita
-        if self.pontos >= self.pontuacao_maxima:
-            self.txt_status = arcade.Text("PARABÉNS! PONTUAÇÃO MÁXIMA!", LARGURA / 2, 255, arcade.color.YELLOW, 24, anchor_x="center")
-            self.txt_sub = arcade.Text("Você escapou de todos os inimigos perfeitamente!", LARGURA / 2, 220, arcade.color.WHITE, 17, anchor_x="center")
-        else:
-            self.txt_status = arcade.Text("PARABÉNS! O JOGO FOI CONCLUÍDO!", LARGURA / 2, 255, arcade.color.WHITE, 22, anchor_x="center")
-            self.txt_sub = None
-
-        self.txt_menu = arcade.Text("[M] Voltar ao Menu Principal", LARGURA / 2, 150, arcade.color.WHITE, 18, anchor_x="center")
-        self.txt_sair = arcade.Text("[ESC] Sair do Jogo", LARGURA / 2, 110, arcade.color.WHITE, 18, anchor_x="center")
+    def on_show_view(self):
+        arcade.set_background_color(COR_MENU)
 
     def on_draw(self):
         self.clear()
         self.txt_titulo.draw()
         self.txt_pontos.draw()
         self.txt_tempo.draw()
-        self.txt_status.draw()
-        if self.txt_sub:
-            self.txt_sub.draw()
+        self.txt_instrucao.draw()
+        self.txt_nome.draw()
+        self.txt_ranking.draw()
         self.txt_menu.draw()
         self.txt_sair.draw()
+
+    def on_text(self, text):
+        if self.salvo:
+            return
+        # Aceita letras, números e espaços, limitando o nome a 24 caracteres.
+        texto_limpo = "".join(caractere for caractere in text if caractere.isprintable())
+        self.nome_digitado = (self.nome_digitado + texto_limpo)[:24]
+        self.txt_nome.text = self.nome_digitado
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.BACKSPACE and not self.salvo:
+            self.nome_digitado = self.nome_digitado[:-1]
+            self.txt_nome.text = self.nome_digitado
+        elif key in (arcade.key.ENTER, arcade.key.RETURN) and not self.salvo:
+            self.salvar_pontuacao()
+        elif key == arcade.key.R:
+            if self.salvo:
+                self.window.show_view(TelaRanking())
+            else:
+                self.mensagem = "Salve a pontuação antes de abrir o ranking."
+                self.txt_instrucao.text = self.mensagem
+        elif key == arcade.key.M:
+            self.window.show_view(TelaInicial())
+        elif key == arcade.key.ESCAPE:
+            arcade.close_window()
+
+    def salvar_pontuacao(self):
+        nome = self.nome_digitado.strip()
+        if not nome:
+            self.mensagem = "Digite um nome antes de pressionar ENTER."
+            self.txt_instrucao.text = self.mensagem
+            return
+
+        try:
+            preparar_banco()
+            Pontuacao.create(
+                nome_jogador=nome,
+                pontos=self.pontos,
+                tempo_partida=self.tempo,
+            )
+            self.salvo = True
+            self.mensagem = "Pontuação salva! Pressione R para ver o ranking."
+            self.txt_instrucao.text = self.mensagem
+        except Exception as erro:
+            self.mensagem = f"Erro ao salvar no banco: {erro}"
+            self.txt_instrucao.text = self.mensagem
+
+
+# ============================================================
+# TELA RANKING — TOP 10
+# ============================================================
+class TelaRanking(arcade.View):
+    def __init__(self):
+        super().__init__()
+        preparar_banco()
+
+        # IMPORTANTE: a consulta ocorre uma única vez no __init__,
+        # nunca dentro de on_draw(), conforme o documento do professor.
+        self.melhores = list(
+            Pontuacao.select()
+            .order_by(Pontuacao.pontos.desc(), Pontuacao.tempo_partida.asc())
+            .limit(10)
+        )
+
+        self.txt_titulo = arcade.Text("RANKING — TOP 10", LARGURA / 2, 520, arcade.color.WHITE, 30, anchor_x="center")
+        self.txt_ajuda = arcade.Text("[M] Menu principal   [ESC] Sair", LARGURA / 2, 55, arcade.color.WHITE, 16, anchor_x="center")
+        self.txt_vazio = arcade.Text("Ainda não há pontuações registradas.", LARGURA / 2, 300, arcade.color.WHITE, 18, anchor_x="center")
+        self.linhas = []
+        for indice, registro in enumerate(self.melhores):
+            y = 455 - indice * 38
+            linha = arcade.Text(
+                f"{indice + 1}. {registro.nome_jogador} — {registro.pontos} pts — {registro.tempo_partida:.1f}s",
+                100, y, arcade.color.WHITE, 18,
+            )
+            self.linhas.append(linha)
+
+    def on_show_view(self):
+        arcade.set_background_color(COR_MENU)
+
+    def on_draw(self):
+        self.clear()
+        self.txt_titulo.draw()
+        if not self.melhores:
+            self.txt_vazio.draw()
+        else:
+            for linha in self.linhas:
+                linha.draw()
+        self.txt_ajuda.draw()
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.M:
@@ -530,15 +702,12 @@ class TelaFinal(arcade.View):
 
 
 # ============================================================
-# PONTO DE ENTRADA DO PROGRAMA
+# INICIALIZAÇÃO
 # ============================================================
-
 def main():
-    # Inicializa a janela principal do Arcade
+    preparar_banco()
     janela = arcade.Window(LARGURA, ALTURA, TITULO)
-    # Define a view inicial exibida ao abrir o jogo
     janela.show_view(TelaInicial())
-    # Inicia o loop principal do Arcade
     arcade.run()
 
 
