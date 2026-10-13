@@ -273,7 +273,7 @@ class Explosao(arcade.Sprite):
     def __init__(self, x, y):
         folha = arcade.load_spritesheet("explosao.png")
         self.quadros = folha.get_texture_grid(
-            size=(334, 334),
+            size=(300, 300),
             columns=4,
             count=4
         )
