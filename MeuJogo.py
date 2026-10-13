@@ -395,7 +395,7 @@ class TelaJogo(arcade.View):
         # Chão e plataformas suspensas.
         for x in range(32, LARGURA + 32, 64):
             self.sprite_blocos.append(Bloco(x, 30))
-        for x, y in [(270, 190), (540, 190)]:
+        for x, y in [(270, 190), (700, 190)]:
             self.sprite_blocos.append(Bloco(x, y))
 
         self.jogador = Player()
@@ -475,7 +475,7 @@ class TelaJogo(arcade.View):
     def respawn_longe_do_jogador(self, inimigo, distancia_minima):
         for _ in range(100):
             inimigo.center_x = random.randint(40, LARGURA - 40)
-            inimigo.center_y = random.randint(100, ALTURA - 40)
+            
             if arcade.get_distance_between_sprites(inimigo, self.jogador) >= distancia_minima:
                 return
         # Fallback para evitar um loop infinito em mapas pequenos.
@@ -695,7 +695,7 @@ class TelaRanking(arcade.View):
         self.txt_ajuda.draw()
 
     def on_key_press(self, key, modifiers):
-        if key == arcade.key.M:
+        if key == arcade.key.ESCAPE:
             self.window.show_view(TelaInicial())
         elif key == arcade.key.ESCAPE:
             arcade.close_window()
