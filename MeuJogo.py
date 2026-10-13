@@ -247,7 +247,7 @@ class Inimigo(arcade.Sprite):
 # ============================================================
 class InimigoEspecial(arcade.Sprite):
     def __init__(self):
-        super().__init__("inimigo.png", scale=0.18)
+        super().__init__("inimigo.png", scale=0.15)
         self.change_x = random.choice([-3.0, 3.0])
         self.change_y = random.choice([-3.0, 3.0])
 
@@ -273,7 +273,7 @@ class Explosao(arcade.Sprite):
     def __init__(self, x, y):
         folha = arcade.load_spritesheet("explosao.png")
         self.quadros = folha.get_texture_grid(
-            size=(300, 300),
+            size=(334, 334),
             columns=4,
             count=4
         )
